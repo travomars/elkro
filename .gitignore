@@ -1,0 +1,6 @@
+.env
+*.env
+elkro.json
+__pycache__/
+*.pyc
+.venv/

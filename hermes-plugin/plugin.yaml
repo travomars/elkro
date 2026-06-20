@@ -1,0 +1,8 @@
+name: elkro
+version: 1.0.0
+description: "Elkro Cognitive Layer - Extensible Local Knowledge Routing Overlay backed by pgvector."
+author: "Your Name"
+requires_env:
+  - name: ELKRO_MCP_URL
+    description: "The host address of your running Elkro FastMCP Python server."
+    default: "http://127.0.0.1:8000"

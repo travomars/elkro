@@ -1,0 +1,115 @@
+# Elkro DB Validation Commands
+
+Run via:
+  docker exec -it elkro-db psql -U postgres -d elkro -c "<query>"
+
+Or open a psql shell and paste these in one at a time:
+  docker exec -it elkro-db psql -U postgres -d elkro
+
+
+## 1. Table existence & row counts (sanity check)
+
+SELECT 'memories' AS table, COUNT(*) FROM memories
+UNION ALL
+SELECT 'summaries', COUNT(*) FROM summaries
+UNION ALL
+SELECT 'facts', COUNT(*) FROM facts
+UNION ALL
+SELECT 'share_requests', COUNT(*) FROM share_requests
+UNION ALL
+SELECT 'identities', COUNT(*) FROM identities;
+
+
+## 2. Most recent memories (confirm writes are landing)
+
+SELECT id, project_id, scope, LEFT(content, 80) AS content_preview, created_at
+FROM memories
+ORDER BY created_at DESC
+LIMIT 10;
+
+
+## 3. Embeddings are actually populated (not NULL)
+
+SELECT COUNT(*) AS missing_embeddings
+FROM memories
+WHERE embedding IS NULL;
+-- Expect: 0
+
+
+## 4. Embedding dimensionality check (should all be 768 — nomic-embed-text)
+
+SELECT id, vector_dims(embedding) AS dims
+FROM memories
+WHERE vector_dims(embedding) != 768
+LIMIT 10;
+-- Expect: 0 rows returned
+
+
+## 5. No orphaned share_requests (memory_id should always resolve)
+
+SELECT sr.id, sr.memory_id, sr.status
+FROM share_requests sr
+LEFT JOIN memories m ON sr.memory_id = m.id
+WHERE m.id IS NULL;
+-- Expect: 0 rows
+
+
+## 6. Facts table — duplicate keys per project (should be impossible due to UNIQUE constraint)
+
+SELECT project_id, key, COUNT(*)
+FROM facts
+GROUP BY project_id, key
+HAVING COUNT(*) > 1;
+-- Expect: 0 rows
+
+
+## 7. Current turn counter sanity (should increment, not reset oddly)
+
+SELECT project_id, key, value, updated_at
+FROM facts
+WHERE key = 'current_session_turn'
+ORDER BY updated_at DESC
+LIMIT 5;
+
+
+## 8. Recent summaries (confirm session-end extraction, once batch worker is live)
+
+SELECT id, project_id, LEFT(content, 120) AS summary_preview, created_at
+FROM summaries
+ORDER BY created_at DESC
+LIMIT 5;
+
+
+## 9. Scope distribution (private vs shared vs pending_share)
+
+SELECT scope, COUNT(*)
+FROM memories
+GROUP BY scope
+ORDER BY COUNT(*) DESC;
+
+
+## 10. Identity resolution map (confirm canonical_id mapping is sane)
+
+SELECT platform, platform_id, canonical_id
+FROM identities
+ORDER BY platform;
+
+
+## 11. Semantic search smoke test (replace the embedding vector or run via API instead —
+##     this is just to confirm the index/operator works at the SQL level)
+
+EXPLAIN ANALYZE
+SELECT content, embedding <=> (SELECT embedding FROM memories LIMIT 1) AS distance
+FROM memories
+ORDER BY distance ASC
+LIMIT 5;
+-- Confirm this returns quickly and uses an index scan once you have
+-- enough rows to justify creating one (ivfflat / hnsw).
+
+
+## 12. Stale / empty content check
+
+SELECT id, project_id, created_at
+FROM memories
+WHERE content IS NULL OR TRIM(content) = '';
+-- Expect: 0 rows

@@ -4,3 +4,12 @@ elkro.json
 __pycache__/
 *.pyc
 .venv/
+
+# Logs
+*.log
+
+# pytest
+.pytest_cache/
+
+# Ignore the benchmarks folder for now
+benchmarks/

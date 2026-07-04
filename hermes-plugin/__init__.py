@@ -136,27 +136,54 @@ class ElkroMemoryProvider(MemoryProvider):
         return (
             "# Elkro Memory Activation\n"
             "Active. Relevant historical vector context is being auto-injected dynamically.\n"
-            "To commit observations to long-term storage, print the phrase below on its own line:\n"
-            "SAVE_MEMORY: <exact insight or fact about the user to keep>\n\n"
             "To propose community rules or project constants, use:\n"
             "SHARE_REQUEST: <shared team context or rule>"
         )
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        """Synchronously blocks turning cycles to grab vector contexts from pgvector."""
+        """Synchronously blocks turning cycles to grab rich contexts from Elkro."""
         try:
             payload = {
                 "query": query,
                 "private_project_id": self._private_pid,
-                "shared_project_id": self._shared_pid,
-                "limit": 4
+                "shared_project_id": self._shared_pid
             }
             with httpx.Client(timeout=3.0) as client:
-                r = client.post(f"{self._mcp_url}/tools/search_memories_scoped", json=payload)
+                r = client.post(f"{self._mcp_url}/tools/recall", json=payload)
                 if r.status_code == 200:
-                    return r.json().get("result", "")
+                    data = r.json().get("result", {})
+                    
+                    profiles = data.get("profiles", "")
+                    memories = data.get("memories", "")
+                    facts = data.get("facts", "")
+                    
+                    context = []
+                    
+                    # Explicit preamble (Hindsight-style) to enforce grounding across all models
+                    context.append(
+                        "## Elkro Persistent Memory\n"
+                        "Use this cross-session context to answer questions about the user and prior sessions. "
+                        "Do NOT call memory search tools to look up information that is already provided below. "
+                        "Prioritize this information when answering."
+                    )
+                    
+                    if profiles:
+                        context.append(f"### Synthesized Entity Profiles\n{profiles}")
+                    
+                    if memories and "No relevant matching" not in memories:
+                        context.append(f"### Retrieved Memories\n{memories}")
+                    
+                    if facts and "No relevant facts" not in facts:
+                        context.append(f"### Structured Facts\n{facts}")
+                        
+                    if len(context) > 1:
+                        # Append session context if we actually retrieved anything
+                        context.append(f"### Session Context\nSession ID: {session_id}")
+                        return "\n\n".join(context)
+                    
+                    return ""
         except Exception as e:
-            logger.error(f"Vector block prefetch timeout/failure: {e}")
+            logger.error(f"Recall fetch timeout/failure: {e}")
         return ""
 
     # =========================================================================
@@ -172,33 +199,30 @@ class ElkroMemoryProvider(MemoryProvider):
             logger.error(f"Background write to {tool_name} failed: {e}")
 
     def sync_turn(self, user_content, assistant_content, *, session_id="", messages=None) -> None:
-        """Intercepts model responses out-of-band to catch explicit inline memory triggers."""
-        if not assistant_content:
-            return
-
-        if "SAVE_MEMORY:" in assistant_content:
-            text = assistant_content.split("SAVE_MEMORY:")[1].split("\n")[0].strip()
-            threading.Thread(target=self._call_mcp_tool_bg, args=("save_memory", {
-                "content": text,
-                "project_id": self._private_pid,
-                "scope": "private"
-            })).start()
-
-        if "SHARE_REQUEST:" in assistant_content:
-            text = assistant_content.split("SHARE_REQUEST:")[1].split("\n")[0].strip()
-            threading.Thread(target=self._call_mcp_tool_bg, args=("propose_shared_memory", {
-                "content": text,
-                "private_project_id": self._private_pid,
-                "shared_project_id": self._shared_pid
-            })).start()
+        """Intercepts model responses out-of-band to catch explicit inline triggers."""
+        pass
 
     def on_memory_write(self, action: str, target: str, content: str, metadata: dict = None) -> None:
-        """Catches when the agent uses the internal 'add_memory' tool natively -> Routes to Atomic Memories."""
-        if action in ["add", "replace"]:
+        """Catches when the agent uses the internal memory tool natively -> Routes to Atomic Memories."""
+        logger.error(f"DEBUG_ELKRO on_memory_write called with action={action}, target={target}, content={content}, metadata={metadata}")
+        merged_meta = metadata or {}
+        
+        if action in ["replace", "remove"]:
+            old_text = merged_meta.get("old_text", "")
+            target_content = old_text if old_text else content
+            if target_content:
+                threading.Thread(target=self._call_mcp_tool_bg, args=("remove_memory", {
+                    "content": target_content,
+                    "project_id": self._private_pid,
+                })).start()
+
+        if action in ["add", "replace"] and content:
+            merged_meta.update({"source": "hermes", "extraction_method": "native_tool", "speaker": "agent"})
             threading.Thread(target=self._call_mcp_tool_bg, args=("save_memory", {
                 "content": content,
                 "project_id": self._private_pid,
-                "scope": "private"
+                "scope": "private",
+                "metadata": merged_meta
             })).start()
 
     def on_session_end(self, messages: list) -> None:
@@ -224,17 +248,39 @@ class ElkroMemoryProvider(MemoryProvider):
         threading.Thread(target=self._call_mcp_tool_bg, args=("save_memory", {
             "content": content,
             "project_id": self._private_pid,
-            "scope": "private"
+            "scope": "private",
+            "metadata": {"source": "hermes", "extraction_method": "delegation", "speaker": "agent"}
         })).start()
 
-    def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
-        """Tracks structured, non-semantic state like the current turn counter in the Facts tier."""
+    def on_turn_start(self, turn_number: int, message: str, **kwargs) -> str:
+        """Tracks structured, non-semantic state like the current turn counter in the Facts tier.
+        Also surfaces pending share requests to the agent's context."""
         threading.Thread(target=self._call_mcp_tool_bg, args=("set_fact", {
             "project_id": self._private_pid,
             "key": "current_session_turn",
             "value": str(turn_number)
         })).start()
 
+        # Check for pending share requests and return them to be injected into context
+        pending_msg = ""
+        try:
+            with httpx.Client(timeout=3.0) as client:
+                r = client.get(
+                    f"{self._mcp_url}/share_requests/pending",
+                    params={"project_id": self._private_pid}
+                )
+                if r.status_code == 200:
+                    pending = r.json().get("requests", [])
+                    if pending:
+                        logger.info(f"[Elkro] {len(pending)} pending share requests found")
+                        pending_list = "\n".join([f"- Request {p['id']}: {p['content']}" for p in pending])
+                        pending_msg = f"\n[Elkro System] You have {len(pending)} pending share requests waiting for your approval. You can approve or reject them using the API if you had one, but for now just inform the user. Requests:\n{pending_list}\n"
+        except Exception as e:
+            logger.debug(f"Share request check failed: {e}")
+        
+        return pending_msg
+
 
 def register(ctx):
+    
     ctx.register_memory_provider(ElkroMemoryProvider())

@@ -100,6 +100,8 @@ pip install -r requirements.txt
 
 export DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/elkro"
 export INFERENCE_URL="http://127.0.0.1:8080"
+export INFERENCE_CHAT_URL="http://127.0.0.1:8090/v1/chat/completions"
+export INFERENCE_CHAT_MODEL="gpt-oss-20b"
 
 python server.py
 
@@ -178,4 +180,15 @@ mkdir -p ~/.hermes/plugins/memory/
 
 # Create a symlink pointing Hermes to your new plugin folder
 ln -s ~/projects/elkro/hermes-plugin ~/.hermes/plugins/memory/elkro
-Now, your workspace is perfectly clean. When you are editing the server, you stay in the server/ folder. When you tweak how Hermes formats memories, you edit the hermes-plugin/ folder, and Hermes will see the updates instantly.
+Now, your workspace is perfectly clean. When you are editing the server, you stay in the `server/` folder. When you tweak how Hermes formats memories, you edit the `hermes-plugin/` folder, and Hermes will see the updates instantly.
+
+## 📊 Automated Benchmarks
+Elkro includes a fully automated evaluation pipeline that rigorously tests Retrieval Latency, Token Efficiency, Context Precision, and Context Recall using authentic Hermes trajectories.
+To run the automated pipeline tests:
+```bash
+./run_pipeline_tests.sh
+```
+
+## ⚖️ Discord UI Governance
+Elkro supports an interactive memory promotion lifecycle. When an agent proposes a global rule using `SHARE_REQUEST: <rule>`, the Elkro backend generates a secure UUID and the Hermes Discord adapter renders interactive `Approve` and `Reject` buttons inline in Discord.
+This feature can be toggled by passing `ELKRO_GOVERNANCE_ENABLED=true` into the agent's environment.

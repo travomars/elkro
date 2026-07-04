@@ -1,4 +1,8 @@
-fastmcp
+fastapi
+uvicorn
 asyncpg
 httpx
-uvicorn
+fastmcp
+pydantic
+pytest
+pytest-asyncio

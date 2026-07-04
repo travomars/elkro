@@ -3,12 +3,12 @@ CopyElkro TODO
 Bugs
 
 
- extract_session_summary UnboundLocalError — summary_text is referenced
+[x] extract_session_summary UnboundLocalError — summary_text is referenced
 in the final return statement but only assigned inside the try block.
 If run_extraction_llm() raises before assignment, the function crashes
 with UnboundLocalError instead of failing gracefully.
 Fix: initialize summary_text = "" before the try: block in server.py.
- INFERENCE_CHAT_URL not set in test environment — causes
+[x] INFERENCE_CHAT_URL not set in test environment — causes
 "All connection attempts failed" on extract_session_summary and
 rescue_compressed_memories. Needs to be exported wherever the server
 runs (shell, docker-compose, systemd unit), pointing at llama-swap's
@@ -62,7 +62,7 @@ Updated after first LoCoMo pilot run (conversation 0, 199 questions, DeepSeek ev
 
 ## 🔴 High priority — benchmark findings
 
-- [ ] **Add temporal context to ingested memories.** Category 2 (temporal
+- [x] **Add temporal context to ingested memories.** Category 2 (temporal
       reasoning) scored 0.12 F1, but inspection showed the model retrieved
       the *right* turn and gave a *relatively* correct answer ("yesterday",
       "last year") — it just had no absolute date to anchor against. Gold
@@ -99,12 +99,12 @@ Updated after first LoCoMo pilot run (conversation 0, 199 questions, DeepSeek ev
 
 ## 🟠 Bugs (from earlier server.py work)
 
-- [ ] **`extract_session_summary` UnboundLocalError** — `summary_text` is
+- [x] **`extract_session_summary` UnboundLocalError** — `summary_text` is
       referenced in the final return statement but only assigned inside the
       `try` block. Fix: initialize `summary_text = ""` before the `try:`
       block in `server.py`.
 
-- [ ] **`INFERENCE_CHAT_URL` not set in test/server environment** — causes
+- [x] **`INFERENCE_CHAT_URL` not set in test/server environment** — causes
       "All connection attempts failed" on `extract_session_summary` and
       `rescue_compressed_memories`. Needs to be exported wherever the
       server runs (shell, docker-compose, systemd unit), pointing at
@@ -113,13 +113,13 @@ Updated after first LoCoMo pilot run (conversation 0, 199 questions, DeepSeek ev
 
 ## 🟡 Data hygiene
 
-- [ ] **Add dedup logic to `save_memory`.** No similarity check exists
+- [x] **Add dedup logic to `save_memory`.** No similarity check exists
       before insert — near-identical memories get stored multiple times
       (seen in testing: duplicate "favorite liquor" and "homelab" entries).
       Skip insert if cosine distance to nearest existing memory for the
       same project_id is below a threshold (e.g. 0.05).
 
-- [ ] **Clean up junk/test entries already in `memories`.** A few rows are
+- [x] **Clean up junk/test entries already in `memories`.** A few rows are
       leftover meta-commentary from early SAVE_MEMORY trigger testing
       (fragments like a stray backtick followed by "lines actually
       persisted."). One-time cleanup:
@@ -127,14 +127,14 @@ Updated after first LoCoMo pilot run (conversation 0, 199 questions, DeepSeek ev
       DELETE FROM memories WHERE content LIKE '`%';
       ```
 
-- [ ] **Remove/replace placeholder identity row** — a placeholder Discord
+- [x] **Remove/replace placeholder identity row** — a placeholder Discord
       user ID string is sitting in `identities`, left over from seed/test
       data. Harmless until real Discord integration is wired up, but worth
       tracking so it isn't mistaken for a real mapping.
 
 ## 🟢 Architecture / design (deferred / batch processing)
 
-- [ ] **Move LLM-dependent extraction off the synchronous hot path.**
+- [x] **Move LLM-dependent extraction off the synchronous hot path.**
       `extract_session_summary` and `rescue_compressed_memories` currently
       run inline, triggered by Hermes plugin hooks (`on_session_end`,
       `on_pre_compress`). This couples memory durability to local LLM
@@ -152,14 +152,14 @@ Updated after first LoCoMo pilot run (conversation 0, 199 questions, DeepSeek ev
       4. Also makes it trivial to batch multiple sessions into fewer,
          larger LLM calls later if desired.
 
-- [ ] **Add env vars to `docker-compose.yml`** for the Elkro server:
+- [x] **Add env vars to `docker-compose.yml`** for the Elkro server:
       - `DATABASE_URL`
       - `INFERENCE_URL` (embeddings — nomic-embed)
       - `INFERENCE_CHAT_URL` (chat completions — gpt-oss-20b via llama-swap,
         or DeepSeek for higher-quality extraction)
       - `INFERENCE_CHAT_MODEL`
 
-- [ ] **Decide retry/backoff policy for the extraction worker** — e.g.
+- [x] **Decide retry/backoff policy for the extraction worker** — e.g.
       exponential backoff if the LLM endpoint is unreachable, max retry
       count before marking a queue row as permanently failed (for
       visibility, not silent loss).

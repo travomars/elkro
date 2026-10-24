@@ -163,7 +163,7 @@ Python
 
 ```
 # Example Client Integration Environment Variable
-export RUNES_MCP_URL="http://127.0.0.1:8000"
+export MCP_URL="http://127.0.0.1:8000"
 
 ```
 
